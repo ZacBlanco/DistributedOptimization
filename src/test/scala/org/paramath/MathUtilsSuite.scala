@@ -1,16 +1,16 @@
 package org.paramath
 
-import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV}
+import breeze.linalg.{DenseMatrix => BDM}
+import org.paramath.util.{MathUtils => mutil}
 import org.apache.spark.SparkContext
-import org.apache.spark.mllib.linalg.distributed._
 import org.apache.spark.mllib.linalg.{DenseVector, Matrices, Matrix}
+import org.apache.spark.mllib.linalg.distributed.{CoordinateMatrix, IndexedRow, IndexedRowMatrix, MatrixEntry}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.SparkSession
 import org.scalatest.{BeforeAndAfterAll, FunSuite}
 
+class MathUtilsSuite extends FunSuite with BeforeAndAfterAll{
 
-
-class CA_SFISTASuite extends FunSuite with BeforeAndAfterAll{
 
   @transient var spark: SparkSession = _
   @transient var sc: SparkContext = _
@@ -18,12 +18,11 @@ class CA_SFISTASuite extends FunSuite with BeforeAndAfterAll{
   override def beforeAll() {
     spark = SparkSession.builder
       .master("local[2]")
-      .appName("MLlibUnitTest")
+      .appName("DitributedOptimizationUnitTest")
       .getOrCreate()
     sc = spark.sparkContext
 
   }
-
   def toBreeze(A: CoordinateMatrix): BDM[Double] = {
     val m = A.numRows().toInt
     val n = A.numCols().toInt
@@ -86,10 +85,10 @@ class CA_SFISTASuite extends FunSuite with BeforeAndAfterAll{
     var c: CoordinateMatrix = breezeToCoordMatrix(a)
     var d: CoordinateMatrix = breezeToCoordMatrix(b)
 
-    var x = CA_SFISTA.RDDMult(c.entries, d.entries)
+    var x = mutil.RDDMult(c.entries, d.entries)
     assert(matnorm(toBreeze(new CoordinateMatrix(x)) - a) == 0)
 
-    x = CA_SFISTA.RDDMult(d.entries, c.entries)
+    x = mutil.RDDMult(d.entries, c.entries)
     assert(matnorm(toBreeze(new CoordinateMatrix(x)) - a) == 0)
   }
 
@@ -97,8 +96,8 @@ class CA_SFISTASuite extends FunSuite with BeforeAndAfterAll{
 
     for (j <- 0 to 20) {
       var k = genMatrix(10, 3, 10, 20)
-      var a = CA_SFISTA.breezeMatrixToCoord(k, sc)
-      var x = new CoordinateMatrix(CA_SFISTA.sampleRows(a, .1))
+      var a = mutil.breezeMatrixToCoord(k, sc)
+      var x = new CoordinateMatrix(mutil.sampleRows(a, .1))
       val samp = toBreeze(x)
 
       var matched = false
@@ -125,7 +124,7 @@ class CA_SFISTASuite extends FunSuite with BeforeAndAfterAll{
 
   test("Random set of unique numbers") {
     for (i <- 100 to 150) {
-      val t = CA_SFISTA.uniqueRandVals(0, i, 20)
+      val t = mutil.uniqueRandVals(0, i, 20)
       val q = t.toSet
       assert(t.length == q.size)
     }
@@ -133,27 +132,17 @@ class CA_SFISTASuite extends FunSuite with BeforeAndAfterAll{
   }
 
   test("Binary Search") {
-    var t = CA_SFISTA.uniqueRandVals(0, 20, 10)
+    var t = mutil.uniqueRandVals(0, 20, 10)
     scala.util.Sorting.quickSort(t)
     for (i <- t) {
-      var ind = CA_SFISTA.binSearch(t, i)
+      var ind = mutil.binSearch(t, i)
       assert(ind != -1)
       assert(t(ind) == i)
     }
 
     for (i <- 21 to 30) {
-      assert(CA_SFISTA.binSearch(t, i) == -1)
+      assert(mutil.binSearch(t, i) == -1)
     }
   }
 
-
-  test("CA_FISTA Temp") {
-    CA_SFISTA.readSVMData("sample_libsvm_data.txt")
-    var (data, labels) = CA_SFISTA.readSVMData("abalone.txt")
-    data = data.map({ case MatrixEntry(i, j, k) => MatrixEntry(j, i, k)})
-    var tick = System.currentTimeMillis()
-    CA_SFISTA(sc, data, labels, b=0.8, k=10, t=100, lambda=.1)
-    var tock = System.currentTimeMillis()
-    CA_SFISTA.printTime(tick, tock, "Overall")
-  }
 }

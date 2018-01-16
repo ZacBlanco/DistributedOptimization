@@ -4,7 +4,7 @@
   * https://arxiv.org/abs/1710.08883
   *
   * We use Apache Spark to solve a distributed least-squares regression
- */
+  */
 
 package org.paramath
 
@@ -22,10 +22,10 @@ Team Alpha Omega
 CA-SFISTA implementation with Spark
 */
 
-object CA_SFISTA {
+object CA_SPNM {
 
   /**
-    * CA_SFISTA Implementation.
+    * CA_SPNM Implementation.
     * Communication Avoiding SFISTA optimization solver.
     *
     * @param sc User's spark context
@@ -113,8 +113,8 @@ object CA_SFISTA {
 
 
       // collect the data as a demonstration of action
-//      gEntries.collect()
-//      rEntries.collect()
+      //      gEntries.collect()
+      //      rEntries.collect()
       tock = System.currentTimeMillis()
       printTime(tick, tock, "Loop 1")
 
