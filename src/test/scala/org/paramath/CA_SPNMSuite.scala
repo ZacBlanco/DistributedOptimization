@@ -8,7 +8,7 @@ import org.scalatest.{BeforeAndAfterAll, FunSuite}
 
 
 
-class CA_SFISTASuite extends FunSuite with BeforeAndAfterAll{
+class CA_SPNMSuite extends FunSuite with BeforeAndAfterAll{
 
   @transient var spark: SparkSession = _
   @transient var sc: SparkContext = _
@@ -23,12 +23,12 @@ class CA_SFISTASuite extends FunSuite with BeforeAndAfterAll{
   }
 
 
-  test("CA_FISTA Temp") {
+  test("CA_SPNM Temp") {
     MathUtils.readSVMData("sample_libsvm_data.txt")
     var (data, labels) = MathUtils.readSVMData("abalone.txt")
     data = data.map({ case MatrixEntry(i, j, k) => MatrixEntry(j, i, k)})
     var tick = System.currentTimeMillis()
-    CA_SFISTA(sc, data, labels, b=0.8, k=10, t=100, lambda=.1)
+    CA_SPNM(sc, data, labels, b=0.2, k=10, t=100, lambda=.1)
     var tock = System.currentTimeMillis()
     MathUtils.printTime(tick, tock, "Overall")
   }

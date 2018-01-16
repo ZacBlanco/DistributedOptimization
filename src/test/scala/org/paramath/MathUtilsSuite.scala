@@ -73,6 +73,12 @@ class MathUtilsSuite extends FunSuite with BeforeAndAfterAll{
     math.sqrt(c)
   }
 
+//  test("Breeze Triangular") {
+//    var a = breeze.linalg.strictlyLowerTriangular(genMatrix(40, 20))
+//    println(a.rows)
+//    println(a.cols)
+//  }
+
   test("Breeze to CoordinateMatrix") {
     var a = genMatrix(2, 2)
     var b = toBreeze(breezeToCoordMatrix(a))
