@@ -11,7 +11,7 @@ class SparkTestSuite extends FunSuite with BeforeAndAfterAll{
   @transient var checkpointDir: String = _
   override def beforeAll() {
     spark = SparkSession.builder
-      .master("spark://ke:7077")
+      .master("local[4]")
       .appName("DitributedOptimizationUnitTest")
       .getOrCreate()
     sc = spark.sparkContext
