@@ -8,27 +8,27 @@ import org.scalatest.{BeforeAndAfterAll, FunSuite}
 
 
 
-class CA_SFISTASuite extends FunSuite with BeforeAndAfterAll{
+class CA_SFISTASuite extends SparkTestSuite {
 
-  @transient var spark: SparkSession = _
-  @transient var sc: SparkContext = _
-  @transient var checkpointDir: String = _
-  override def beforeAll() {
-    spark = SparkSession.builder
-      .master("local[2]")
-      .appName("DitributedOptimizationUnitTest")
-      .getOrCreate()
-    sc = spark.sparkContext
-
+  override def beforeAll(): Unit = {
+    super.beforeAll()
   }
 
 
-  test("CA_FISTA Temp") {
-    MathUtils.readSVMData("sample_libsvm_data.txt")
+  ignore("CA_FISTA libsvm") {
+    var (data, labels) = MathUtils.readSVMData("sample_libsvm_data.txt")
+    data = data.map({ case MatrixEntry(i, j, k) => MatrixEntry(j, i, k)})
+    var tick = System.currentTimeMillis()
+    CA_SFISTA(sc, data, labels, b=0.5, k=10, t=100, lambda=.1)
+    var tock = System.currentTimeMillis()
+    MathUtils.printTime(tick, tock, "Overall")
+  }
+
+  test("CA_FISTA Abalone") {
     var (data, labels) = MathUtils.readSVMData("abalone.txt")
     data = data.map({ case MatrixEntry(i, j, k) => MatrixEntry(j, i, k)})
     var tick = System.currentTimeMillis()
-    CA_SFISTA(sc, data, labels, b=0.8, k=10, t=100, lambda=.1)
+    CA_SFISTA(sc, data, labels, b=0.5, k=10, t=100, lambda=.1)
     var tock = System.currentTimeMillis()
     MathUtils.printTime(tick, tock, "Overall")
   }

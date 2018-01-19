@@ -1,5 +1,6 @@
 package org.paramath
 
+
 import breeze.linalg.{DenseMatrix => BDM}
 import org.paramath.util.{MathUtils => mutil}
 import org.apache.spark.SparkContext
@@ -9,19 +10,13 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.SparkSession
 import org.scalatest.{BeforeAndAfterAll, FunSuite}
 
-class MathUtilsSuite extends FunSuite with BeforeAndAfterAll{
+import scala.util.Random
+
+class MathUtilsSuite extends SparkTestSuite {
 
 
-  @transient var spark: SparkSession = _
-  @transient var sc: SparkContext = _
-  @transient var checkpointDir: String = _
-  override def beforeAll() {
-    spark = SparkSession.builder
-      .master("local[2]")
-      .appName("DitributedOptimizationUnitTest")
-      .getOrCreate()
-    sc = spark.sparkContext
-
+  override def beforeAll(): Unit = {
+    super.beforeAll()
   }
   def toBreeze(A: CoordinateMatrix): BDM[Double] = {
     val m = A.numRows().toInt
@@ -101,20 +96,28 @@ class MathUtilsSuite extends FunSuite with BeforeAndAfterAll{
   test("Sampling Columns") {
 
     for (j <- 0 to 20) {
-      var k = genMatrix(10, 3, 10, 20)
+      var r = 10
+      var c = 3
+      var k = genMatrix(r, c, 10, 20)
       var a = mutil.breezeMatrixToCoord(k, sc)
-      var x = new CoordinateMatrix(mutil.sampleRows(a, .1))
-      val samp = toBreeze(x)
+      val indices: Array[Long] = new Array(math.floor(.1*r).toInt)
+      for (i <- 0 until math.floor(.1*r).toInt) {
+        indices(i) = Math.abs(Random.nextLong()) % r // [0, nrows)
+      }
+      var ain = a.toIndexedRowMatrix()
+      var x = mutil.sampleRows(ain, indices, sc)
+      var x2 = x.toCoordinateMatrix()
+      val samp = toBreeze(x2)
 
       var matched = false
       // check if our row exists in any of the k rows
-      for (ri <- 0 to k.rows - 1) {
-        if (matched != true) {
+      for (ri <- 0 to k.rows - 1) { // use first row of original matrix
+        if (matched == false) {
           matched = true
           // Iterate over all of the sampled matrices rows/columns to make
           // sure that at least one row of the sampled matrix exists in
           // the original matrix
-          for (ri2 <- 0 to samp.rows - 1) {
+          for (ri2 <- 0 to samp.rows - 1) { // check if ri of original matrix matches the row of samp
             for (ci <- 0 to samp.cols - 1) {
               if (samp(ri2, ci) != k(ri, ci)) {
                 matched = false // Set to false if something within the row doesn't match
