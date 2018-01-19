@@ -1,9 +1,9 @@
 package org.paramath.util
 
 import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV}
-
 import org.apache.spark.SparkContext
-import org.apache.spark.mllib.linalg.{DenseVector, Matrices, Matrix}
+import org.apache.spark.ml.linalg
+import org.apache.spark.mllib.linalg.{DenseMatrix, DenseVector, Matrices, Matrix}
 import org.apache.spark.mllib.linalg.distributed.{CoordinateMatrix, IndexedRow, IndexedRowMatrix, MatrixEntry}
 import org.apache.spark.rdd.RDD
 
@@ -11,6 +11,39 @@ import scala.io.Source
 import scala.util.Random
 
 object MathUtils {
+
+
+  def randomMatrixSamples(
+                           xData: IndexedRowMatrix, // This argument should be passed as X^T (we sample rows instead of columns
+                           yData: IndexedRowMatrix,
+                           k: Int,
+                           b: Double,
+                           m: Double,
+                           sc: SparkContext,
+                           builtinGram: Boolean = true): (Array[BDM[Double]], Array[BDM[Double]]) = {
+
+    var gEntries: Array[BDM[Double]] = new Array(k) // RDD for the sample matrices
+    var rEntries: Array[BDM[Double]] = new Array(k)
+    // Use an array of RDD's instead
+
+    for (j <- 1 to k) {
+      val (xSampT, ySamp) = sampleXY(xData, yData, b, sc)
+      val xSamp = xSampT.toCoordinateMatrix().transpose() // must be calculated every time
+      val dim = xData.numCols().toInt
+
+
+      if (builtinGram) {
+        val gm: linalg.DenseMatrix = xSampT.computeGramianMatrix().asML.toDense
+        gEntries(j - 1) = new BDM(gm.numRows, gm.numCols, gm.values)
+      } else {
+        val xxt: RDD[MatrixEntry] = RDDMult(xSamp.entries, xSampT.toCoordinateMatrix().entries)
+        gEntries(j-1) = coordToBreeze(new CoordinateMatrix(xxt), dim, dim)
+      }
+      rEntries(j-1) = coordToBreeze(new CoordinateMatrix(RDDMult(xSamp.entries, ySamp.toCoordinateMatrix().entries)), dim, 1)
+
+    }
+    (gEntries, rEntries) // Use must still divide by m for SFISTA and SPNM Algorithms
+  }
 
   def printTime(tick: Long, tock: Long, id: String) {
     val diff = tock-tick
@@ -44,33 +77,49 @@ object MathUtils {
   }
 
   /**
-    * Take a percent of the columns of a matrix.
+    * Returns only the rows whose indices match an entry in the rows parameter.
+    *
     * @param A matrix to take column samples of
-    * @param percent percent of columns to take
+    * @param rows An array containing the indexes to keep in the matrix
     * @return RDD[MatrixEntry] with columns shifted to create a normal matrix
     */
-  def sampleRows(A: CoordinateMatrix, percent: Double): RDD[MatrixEntry] = {
-    val nrows = A.numRows()
-    val pickNum = Math.floor(nrows*percent)
+  def sampleRows(A: IndexedRowMatrix, rows: Array[Long], sc: SparkContext): IndexedRowMatrix = {
+
+    var rowSet: Set[Long] = rows.toSet
+    scala.util.Sorting.quickSort(rows) // Sort the picked column indexes
+
+    // Now we need to pick out the proper rows.
+    // First, filter out the rows we don't want
+    // Set corresponding row index to their index in the array
+    // Convert back to row matrix
+
+    val bcastSet = sc.broadcast(rowSet)
+    val bcastRows = sc.broadcast(rows)
+    val filteredRows: RDD[IndexedRow] = A.rows
+      .filter({ case IndexedRow(i, v) => bcastSet.value.contains(i.toInt) })
+      .map({case IndexedRow(i, v) => IndexedRow(binSearch(bcastRows.value, i), v)})
+
+    new IndexedRowMatrix(filteredRows) // Convert back to Coordinate matrix.
+  }
+
+  /**
+    * Pick a random number columns from X, and a random number of rows from Y
+    * @param X The X data to sample rows from (For CA SFISTA/SPNM this should be X^T
+    * @param y The y Vector to sample rows from
+    * @param percent Percent of rows to sample from each.
+    * @return
+    */
+  def sampleXY(X: IndexedRowMatrix, y: IndexedRowMatrix, percent: Double, sc: SparkContext): (IndexedRowMatrix, IndexedRowMatrix) = {
+    val nrows: Long = X.numRows() // Should be same as y.numRows()
+    val pickNum: Int = Math.floor(nrows*percent).toInt
     if (pickNum < 1) {
       throw new IllegalArgumentException(s"Sample $percent is too low for matrix with $nrows columns")
     }
-
-    val cols: Array[Int] = uniqueRandVals(0, nrows.toInt-1, pickNum.toInt) // Get the column indexes
-    var colSet: Set[Int] = cols.toSet
-    scala.util.Sorting.quickSort(cols) // Sort the picked column indexes
-
-    // Now we need to pick out the columns.
-    // First, transpose to rows
-    // Filter out the rows we don't want
-    // Set corresponding row index to their index in the array
-    // Convert back to row matrix and transpose
-
-    var filteredrows = A.toIndexedRowMatrix().rows
-      .filter({ case IndexedRow(i, v) => colSet.contains(i.toInt) })
-      .map({case IndexedRow(i, v) => IndexedRow(binSearch(cols, i.toInt).toLong, v)})
-
-    new IndexedRowMatrix(filteredrows).toCoordinateMatrix().entries // Convert back to Coordinate matrix.
+    val indices: Array[Long] = new Array[Long](pickNum)
+    for (i <- 0 until pickNum) {
+      indices(i) = Math.abs(Random.nextLong()) % nrows // [0, nrows)
+    }
+    (sampleRows(X, indices, sc), sampleRows(y, indices, sc)) // Forces us to take the same samples
   }
 
   /**
@@ -79,6 +128,23 @@ object MathUtils {
     * @param num Number to search for
     * @return Index of the number in the array
     */
+  def binSearch(a: Array[Long], num: Long): Long = {
+    var lo: Int = 0
+    var hi: Int = a.length-1
+    var mid: Int = (hi+lo) >>> 1
+    while (lo <= hi) {
+      mid = (hi+lo) >>> 1
+      if (a(mid) == num) {
+        return mid
+      } else if (num < a(mid)){
+        hi = mid - 1
+      } else {
+        lo = mid + 1
+      }
+    }
+    -1
+  }
+
   def binSearch(a: Array[Int], num: Int): Int = {
     var lo: Int = 0
     var hi: Int = a.length-1
@@ -106,7 +172,7 @@ object MathUtils {
     val rang = min to max
     val arr: Array[Int] = rang.toArray[Int]
     for (i <- (max-min) to 1 by -1) {
-      var j: Int = Math.abs(Random.nextInt()) % i
+      var j: Int = Math.abs(Random.nextInt() % i)
       val tmp = arr(j)
       arr(j) = arr(i)
       arr(i) = tmp

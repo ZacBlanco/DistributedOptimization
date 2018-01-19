@@ -51,10 +51,10 @@ object CA_SPNM {
     val labelEntries = sc.parallelize(labels) // create RDD of MatrixEntry of labels
     // TODO: Check if pre-partitioning data is necessary so we don't have
     // TODO: repartition in the loop. (entries/labelEntries)
-    var xData: CoordinateMatrix = new CoordinateMatrix(entries)
-    var yData: CoordinateMatrix = new CoordinateMatrix(labelEntries)
-    val d = xData.numRows()
-    val n = xData.numCols()
+    var xDataT: IndexedRowMatrix = new CoordinateMatrix(entries).transpose().toIndexedRowMatrix()
+    var yData: IndexedRowMatrix = new CoordinateMatrix(labelEntries).toIndexedRowMatrix()
+    val d = xDataT.numCols()
+    val n = xDataT.numRows()
 
     val m: Double = Math.floor(b*n)
 
@@ -65,66 +65,27 @@ object CA_SPNM {
     var w: BDM[Double] = w0; // Set our weights (the ones that change, equal to w0)
     // w should have the same number of partitions as the original matrix? - Check with Saeed
     var wm1: BDM[Double] = w0; // weights used 1 iteration ago
-    var wm2: BDM[Double] = null; // weights used 2 iterations ago
     var tick, tock: Long = System.currentTimeMillis()
 
     // Main algorithm loops
     for (i <- 0 to t / k) {
-      var gEntries: Array[RDD[MatrixEntry]] = new Array(k)//sc.emptyRDD[MatrixEntry] // RDD for the sample matrices
-      var rEntries: Array[RDD[MatrixEntry]] = new Array(k)//sc.emptyRDD[MatrixEntry]
 
-      // Use a array of RDD's instead
-
-      tick = System.currentTimeMillis()
-      for (j <- 1 to k) {
-
-        gEntries(j-1) = sc.emptyRDD[MatrixEntry]
-        rEntries(j-1) = sc.emptyRDD[MatrixEntry]
-        // randomized sampling of data from the RDDs
-
-        // This doesn't work because it doesn't select full rows/columns
-        // var samples = entries.sample(false, b, 1L).collect()
-
-        var samples: RDD[MatrixEntry] = mutil.sampleRows(xData.transpose(), b).map({ case MatrixEntry(i, j, k) => MatrixEntry(j, i, k)})
-        var sampleRDD: RDD[MatrixEntry] = samples.repartition(numPartitions)
-
-        // "Real" labeled data
-
-        // This doesn't work because it doesn't select full rows/columns
-        //var labelSamples = labelEntries.sample(false, b, 1L).collect()
-        val labelSamples = mutil.sampleRows(yData, b)
-        val labelSampleRDD = labelSamples.repartition(numPartitions)
-
-        // create two temporary CoordinateMatrix
-        val coordX: RDD[MatrixEntry] = sampleRDD // Coordinate matrix of sampled matrix
-        val coordXT: RDD[MatrixEntry] = coordX.map({case MatrixEntry(i, j, k) => MatrixEntry(j, i, k)})// ?
-        val coordY: RDD[MatrixEntry] = labelSampleRDD
+      val (gEntries, rEntries) = mutil.randomMatrixSamples(xDataT, yData, k, b, m, sc)
 
 
-        var tmp = mutil.RDDMult(coordX, coordXT) //Gj
-        gEntries(j-1) = gEntries(j-1).union(tmp)
+      val gMat: Array[BDM[Double]] = gEntries
+      val rMat: Array[BDM[Double]] = rEntries
 
-        tmp = mutil.RDDMult(coordX, coordY)
-        rEntries(j-1) = rEntries(j-1).union(tmp)
-
-        gEntries(j-1) = gEntries(j-1).map({ case MatrixEntry(x, y, z) => MatrixEntry(x, y, z/m)})
-        rEntries(j-1) = rEntries(j-1).map({ case MatrixEntry(x, y, z) => MatrixEntry(x, y, z/m)})
-      }
-
-
-      // collect the data as a demonstration of action
-      //      gEntries.collect()
-      //      rEntries.collect()
       tock = System.currentTimeMillis()
       mutil.printTime(tick, tock, "Loop 1")
 
       tick = System.currentTimeMillis()
       for (j <- 1 to k) {
 
-        val hb = mutil.coordToBreeze(new CoordinateMatrix(gEntries(j-1))) // To do normal multiplications
+        val hb = gMat(j-1) / m // To do normal multiplications
         val hw: BDM[Double] = hb * w // Matrix mult
 
-        val rb = mutil.coordToBreeze(new CoordinateMatrix(rEntries(j-1)))
+        val rb = rMat(j-1) / m
         val fgrad = (X: BDM[Double]) => (hb * X) - rb
 
         val z0: BDM[Double] = wm1
@@ -137,7 +98,7 @@ object CA_SPNM {
         wm1 = w
         w = zq
 
-        val o: Double = breeze.linalg.norm((mutil.coordToBreeze(xData).t * w).toDenseVector - mutil.coordToBreeze(yData).toDenseVector)
+        val o: Double = breeze.linalg.norm((mutil.coordToBreeze(xDataT.toCoordinateMatrix()) * w).toDenseVector - mutil.coordToBreeze(yData.toCoordinateMatrix()).toDenseVector)
         val o1 = 1.0/(2*n) * scala.math.pow(o, 2)
         val o2 = lambda * breeze.linalg.sum(breeze.numerics.abs(w))
         val objFunc = o1 + o2
