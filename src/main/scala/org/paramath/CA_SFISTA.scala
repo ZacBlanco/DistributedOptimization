@@ -43,12 +43,11 @@ object CA_SFISTA {
              alpha: Double = 0.01,
              lambda: Double = .1): CoordinateMatrix = {
 
-    val entries = sc.parallelize(data) // create RDD of MatrixEntry of features
-    val labelEntries = sc.parallelize(labels) // create RDD of MatrixEntry of labels
+    val entries = sc.parallelize(data, numPartitions) // create RDD of MatrixEntry of features
+    val labelEntries = sc.parallelize(labels, numPartitions) // create RDD of MatrixEntry of labels
 
     // Transpose X because it will speed up random column picking operations
     var xDataT: IndexedRowMatrix = new CoordinateMatrix(entries).transpose().toIndexedRowMatrix() // X TRANSPOSED
-
     var yData: IndexedRowMatrix = new CoordinateMatrix(labelEntries).toIndexedRowMatrix()
 
     val d = xDataT.numCols()
@@ -70,9 +69,13 @@ object CA_SFISTA {
       tick = System.currentTimeMillis()
       val (gEntries, rEntries) = mutil.randomMatrixSamples(xDataT, yData, k, b, m, sc)
 
+      val gMat: Array[BDM[Double]] = new Array[BDM[Double]](gEntries.length)
+      val rMat: Array[BDM[Double]] = new Array[BDM[Double]](gEntries.length)
 
-      val gMat: Array[BDM[Double]] = gEntries
-      val rMat: Array[BDM[Double]] = rEntries
+      for(i <- 0 until gEntries.length) {
+        gMat(i) = mutil.RDDToBreeze(gEntries(i), d.toInt, d.toInt)
+        rMat(i) = mutil.RDDToBreeze(rEntries(i), d.toInt, 1)
+      }
 
       tock = System.currentTimeMillis()
       mutil.printTime(tick, tock, "Loop 1")

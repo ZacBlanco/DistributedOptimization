@@ -7,6 +7,7 @@ import org.apache.spark.mllib.linalg.{DenseMatrix, DenseVector, Matrices, Matrix
 import org.apache.spark.mllib.linalg.distributed.{CoordinateMatrix, IndexedRow, IndexedRowMatrix, MatrixEntry}
 import org.apache.spark.rdd.RDD
 
+import scala.collection.mutable.ListBuffer
 import scala.io.Source
 import scala.util.Random
 
@@ -20,10 +21,10 @@ object MathUtils {
                            b: Double,
                            m: Double,
                            sc: SparkContext,
-                           builtinGram: Boolean = true): (Array[BDM[Double]], Array[BDM[Double]]) = {
+                           builtinGram: Boolean = false): (Array[RDD[MatrixEntry]], Array[RDD[MatrixEntry]]) = {
 
-    var gEntries: Array[BDM[Double]] = new Array(k) // RDD for the sample matrices
-    var rEntries: Array[BDM[Double]] = new Array(k)
+    var gEntries: Array[RDD[MatrixEntry]] = new Array(k) // RDD for the sample matrices
+    var rEntries: Array[RDD[MatrixEntry]] = new Array(k)
     // Use an array of RDD's instead
 
     for (j <- 1 to k) {
@@ -34,12 +35,12 @@ object MathUtils {
 
       if (builtinGram) {
         val gm: linalg.DenseMatrix = xSampT.computeGramianMatrix().asML.toDense
-        gEntries(j - 1) = new BDM(gm.numRows, gm.numCols, gm.values)
+        gEntries(j - 1) = breezeToRDD(new BDM(gm.numRows, gm.numCols, gm.values), sc)
       } else {
         val xxt: RDD[MatrixEntry] = RDDMult(xSamp.entries, xSampT.toCoordinateMatrix().entries)
-        gEntries(j-1) = coordToBreeze(new CoordinateMatrix(xxt), dim, dim)
+        gEntries(j-1) = xxt
       }
-      rEntries(j-1) = coordToBreeze(new CoordinateMatrix(RDDMult(xSamp.entries, ySamp.toCoordinateMatrix().entries)), dim, 1)
+      rEntries(j-1) = RDDMult(xSamp.entries, ySamp.toCoordinateMatrix().entries)
 
     }
     (gEntries, rEntries) // Use must still divide by m for SFISTA and SPNM Algorithms
@@ -59,7 +60,12 @@ object MathUtils {
     val rows: Int = if (r == -1) data.numRows().toInt else r
     val cols: Int = if (c == -1) data.numCols().toInt else c
     var m: BDM[Double] = BDM.zeros(rows, cols)
-    data.entries.collect().foreach(mel => {
+    RDDToBreeze(data.entries, rows, cols)
+  }
+
+  def RDDToBreeze(data: RDD[MatrixEntry], r: Int, c: Int): BDM[Double] = {
+    var m: BDM[Double] = BDM.zeros(r, c)
+    data.collect().foreach(mel => {
       m(mel.i.toInt, mel.j.toInt) = mel.value
     })
     m
@@ -200,11 +206,13 @@ object MathUtils {
       labelSeq = labelSeq :+ thisLabelEntry
 
       for (para <- items.tail) {
-        val indexAndValue = para.split(':')
-        val index = indexAndValue(0).toInt - 1 // Convert 1-based indices to 0-based.
-        val value = indexAndValue(1).toDouble
-        val thisEntry = MatrixEntry(i, index, value)
-        thisSeq = thisSeq :+ thisEntry
+        if(para.length > 0) {
+          val indexAndValue = para.split(':')
+          val index = indexAndValue(0).toInt - 1 // Convert 1-based indices to 0-based.
+          val value = indexAndValue(1).toDouble
+          val thisEntry = MatrixEntry(i, index, value)
+          thisSeq = thisSeq :+ thisEntry
+        }
       }
       i = i + 1
     }
@@ -227,6 +235,24 @@ object MathUtils {
     val rddtemp: RDD[IndexedRow] = sc.parallelize(vecs, 2)
     var a = new IndexedRowMatrix(rddtemp)
     a.toCoordinateMatrix()
+  }
+
+  /**
+    * Convert a breeze matrix into an RDD of MatrixEntry
+    * @param A Original matrix
+    * @param sc Spark context
+    * @return The RDD representing the entries.
+    */
+  def breezeToRDD(A: BDM[Double], sc: SparkContext): RDD[MatrixEntry] = {
+    val x: ListBuffer[MatrixEntry] = new ListBuffer[MatrixEntry]()
+    for (i <- 0 until A.rows) {
+      for (j <- 0 until A.cols) {
+        if (A(i, j) != 0) {
+          x += new MatrixEntry(i, j, A(i, j))
+        }
+      }
+    }
+    sc.parallelize(x)
   }
 
   /**
