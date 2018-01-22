@@ -28,6 +28,18 @@ class MathUtilsSuite extends SparkTestSuite {
     mat
   }
 
+  test("breeze to Coord vs rdd") {
+    val A = genMatrix(500, 500)
+    var tick, tock = System.currentTimeMillis()
+    mutil.breezeToRDD(A, sc)
+    tock = System.currentTimeMillis()
+    mutil.printTime(tick, tock, "To RDD")
+    tick = System.currentTimeMillis()
+    mutil.breezeMatrixToCoord(A, sc)
+    tock = System.currentTimeMillis()
+    mutil.printTime(tick, tock, "To Coord")
+  }
+
 
   /**
     * Turn a breeze matrix into a coordinate matrix.

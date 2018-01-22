@@ -19,7 +19,7 @@ class CA_SFISTASuite extends SparkTestSuite {
     var (data, labels) = MathUtils.readSVMData("sample_libsvm_data.txt")
     data = data.map({ case MatrixEntry(i, j, k) => MatrixEntry(j, i, k)})
     var tick = System.currentTimeMillis()
-    CA_SFISTA(sc, data, labels, b=0.5, k=10, t=100, lambda=.1)
+    CA_SFISTA(sc, data, labels, b=0.2, k=10, t=100, lambda=.1)
     var tock = System.currentTimeMillis()
     MathUtils.printTime(tick, tock, "Overall")
   }
@@ -28,7 +28,16 @@ class CA_SFISTASuite extends SparkTestSuite {
     var (data, labels) = MathUtils.readSVMData("abalone.txt")
     data = data.map({ case MatrixEntry(i, j, k) => MatrixEntry(j, i, k)})
     var tick = System.currentTimeMillis()
-    CA_SFISTA(sc, data, labels, b=0.5, k=10, t=100, lambda=.1)
+    CA_SFISTA(sc, data, labels, b=0.2, k=10, t=100, lambda=.1)
+    var tock = System.currentTimeMillis()
+    MathUtils.printTime(tick, tock, "Overall")
+  }
+
+  test("CA_FISTA YearPredictions") {
+    var (data, labels) = MathUtils.readSVMData("YearPredictionMSD")
+    data = data.map({ case MatrixEntry(i, j, k) => MatrixEntry(j, i, k)})
+    var tick = System.currentTimeMillis()
+    CA_SFISTA(sc, data, labels, b=0.2, k=10, t=100, lambda=.1)
     var tock = System.currentTimeMillis()
     MathUtils.printTime(tick, tock, "Overall")
   }
