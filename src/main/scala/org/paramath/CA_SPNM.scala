@@ -25,8 +25,8 @@ object CA_SPNM {
 
 
   /**
-    * CA_SFISTA Implementation.
-    * Communication Avoiding SFISTA optimization solver.
+    * CA_SPNM Implementation.
+    * Communication avoiding linear optimization solver.
     *
     * @param sc User's spark context
     * @param data The data observations, d rows, n cols (d fields * n observations)
@@ -45,8 +45,10 @@ object CA_SPNM {
              k: Int = 10,
              b: Double = 0.2,
              Q: Int = 5,
-             alpha: Double = 0.01,
-             lambda: Double = .1): CoordinateMatrix = {
+             gamma: Double = 0.01,
+             lambda: Double = .1,
+             Wopt: BDM[Double] = null): CoordinateMatrix = {
+
 
     val entries = sc.parallelize(data, numPartitions) // create RDD of MatrixEntry of features
     val labelEntries = sc.parallelize(labels, numPartitions) // create RDD of MatrixEntry of labels
@@ -58,6 +60,10 @@ object CA_SPNM {
     val n = xDataT.numRows()
 
     val m: Double = Math.floor(b*n)
+
+    var tk: Double = 1.0
+    var tkm1: Double = tk
+    var zqm1: BDM[Double] = BDM.zeros[Double](d.toInt, 1)
 
     // Initialize the weight parameters
     // Use this line to load in the default (or randomly initialized vector)
@@ -84,23 +90,37 @@ object CA_SPNM {
       mutil.printTime(tick, tock, "Loop 1")
 
       tick = System.currentTimeMillis()
+
       for (j <- 1 to k) {
 
         val hb = gMat(j-1) / m // To do normal multiplications
-        val hw: BDM[Double] = hb * w // Matrix mult
-
         val rb = rMat(j-1) / m
+
         val fgrad = (X: BDM[Double]) => (hb * X) - rb
 
-        val z0: BDM[Double] = wm1
+        val z0: BDM[Double] = w
         var zq: BDM[Double] = z0
         var sarg: BDM[Double] = null
+
         for (q <- 1 to Q) {
-          sarg = zq - (alpha * fgrad(zq))
-          zq = mutil.Svec(sarg, alpha*lambda)
+          tk = (1 + Math.sqrt(1 + (4*(tkm1*tkm1))) ) / 2
+          var v: BDM[Double] = null
+          if ( (i*k) + j - 1 > 0) {
+            v = zq +  ((zq-zqm1) *:* ((tkm1 - 1)/tk))
+          } else {
+            v = zq
+          }
+
+          sarg = v - (gamma * fgrad(v))
+          zqm1 = zq
+          zq = mutil.Svec(sarg, gamma*lambda)
+
+          tkm1 = tk
         }
         wm1 = w
         w = zq
+
+
 
         val o: Double = breeze.linalg.norm((mutil.coordToBreeze(xDataT.toCoordinateMatrix()) * w).toDenseVector - mutil.coordToBreeze(yData.toCoordinateMatrix()).toDenseVector)
         val o1 = 1.0/(2*n) * scala.math.pow(o, 2)

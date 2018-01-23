@@ -28,7 +28,7 @@ class CA_SPNMSuite extends SparkTestSuite {
     var (data, labels) = MathUtils.readSVMData("abalone.txt")
     data = data.map({ case MatrixEntry(i, j, k) => MatrixEntry(j, i, k)})
     var tick = System.currentTimeMillis()
-    var result = CA_SPNM(sc, data, labels, b=0.2, k=10, t=100, lambda=.1)
+    var result = CA_SPNM(sc, data, labels, b=0.1, k=10, t=100, gamma=.01, lambda=1, Q=1)
     var tock = System.currentTimeMillis()
     MathUtils.printTime(tick, tock, "Overall")
   }
