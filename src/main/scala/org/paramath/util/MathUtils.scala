@@ -117,7 +117,7 @@ object MathUtils {
     */
   def sampleXY(X: IndexedRowMatrix, y: IndexedRowMatrix, percent: Double, sc: SparkContext): (IndexedRowMatrix, IndexedRowMatrix) = {
     val nrows: Long = X.numRows() // Should be same as y.numRows()
-    val pickNum: Int = Math.floor(nrows*percent).toInt
+    val pickNum: Int = Math.ceil(nrows*percent).toInt
     if (pickNum < 1) {
       throw new IllegalArgumentException(s"Sample $percent is too low for matrix with $nrows columns")
     }
