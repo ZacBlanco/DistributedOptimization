@@ -8,7 +8,7 @@
 
 package org.paramath
 
-import breeze.linalg.{DenseMatrix => BDM}
+import breeze.linalg.{DenseMatrix => BDM, norm}
 import org.paramath.util.{MathUtils => mutil}
 import org.apache.spark.SparkContext
 import org.apache.spark.mllib.linalg.distributed._
@@ -47,7 +47,7 @@ object CA_SPNM {
              Q: Int = 5,
              gamma: Double = 0.01,
              lambda: Double = .1,
-             Wopt: BDM[Double] = null): CoordinateMatrix = {
+             wOpt: BDM[Double] = null): CoordinateMatrix = {
 
 
     val entries = sc.parallelize(data, numPartitions) // create RDD of MatrixEntry of features
@@ -119,6 +119,17 @@ object CA_SPNM {
         }
         wm1 = w
         w = zq
+
+        if (wOpt != null) {
+          if (wOpt.cols != w.cols || wOpt.rows != w.rows) {
+            throw new IllegalArgumentException(s"Woptimal which was provided did not have proper dimensions of ($w.rows x $w.cols")
+          } else {
+            val eps: Double =  norm(w.toDenseVector - wOpt.toDenseVector) / norm(wOpt.toDenseVector)
+            if (eps < 1){
+              return mutil.breezeMatrixToCoord(w, sc)
+            }
+          }
+        }
 
 
 
