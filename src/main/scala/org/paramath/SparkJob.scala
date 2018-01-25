@@ -1,7 +1,10 @@
 package org.paramath
 
+import breeze.linalg.DenseMatrix
 import org.apache.spark.sql.SparkSession
 import org.paramath.util.MathUtils
+
+import scala.io.Source
 
 object SparkJob {
 
@@ -21,6 +24,7 @@ object SparkJob {
          -Q { Number of SFISTA/SPNM Iterations | 10 }
          -g { gamma parameter | .01 }
          -l { lambda parameter | .1 }
+         -wopt { optimal weight vector filename, line by line | null }
 
       """.stripMargin
 
@@ -34,6 +38,7 @@ object SparkJob {
     m += ("-Q" -> "10")
     m += ("-g" -> ".01")
     m += ("-l" -> ".1")
+    m += ("-wopt" -> null)
 
     var i: Int= 0
     while (i < args.length) {
@@ -51,6 +56,20 @@ object SparkJob {
       println(usage)
       sys.exit(1)
     }
+    var wopt: DenseMatrix[Double] = null
+    if (m.get("-wopt").get != null) {
+      try{
+        val f = Source.fromFile(m.get("-wopt").get)
+        val ct = f.getLines().length
+        var i = 0;
+        var w = DenseMatrix.zeros[Double](ct, 1)
+        for (l <- f.getLines) {
+          w(i, 0) = l.toDouble
+          i += 1
+        }
+        wopt = w
+      }
+    }
 
 
 
@@ -65,7 +84,6 @@ object SparkJob {
     var tick = System.currentTimeMillis()
     val kMax = 500
 
-
     for (p <- 1 until kMax by 200) {
       LASSOSolver(sc, data, labels,
         b=m.get("-b").get.toDouble,
@@ -73,7 +91,8 @@ object SparkJob {
         t=m.get("-t").get.toInt,
         Q=m.get("-Q").get.toInt,
         gamma=m.get("-g").get.toDouble,
-        lambda=m.get("-l").get.toDouble)
+        lambda=m.get("-l").get.toDouble,
+        wOpt=wopt)
     }
 
 
