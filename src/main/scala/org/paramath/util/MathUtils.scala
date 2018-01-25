@@ -1,9 +1,9 @@
 package org.paramath.util
 
 import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV}
-import org.apache.spark.SparkContext
+import org.apache.spark.{SparkContext, mllib}
 import org.apache.spark.ml.linalg
-import org.apache.spark.mllib.linalg.{DenseMatrix, DenseVector, Matrices, Matrix}
+import org.apache.spark.mllib.linalg.{DenseMatrix, DenseVector, Matrices, Matrix, Vectors, Vector => MLVector}
 import org.apache.spark.mllib.linalg.distributed.{CoordinateMatrix, IndexedRow, IndexedRowMatrix, MatrixEntry}
 import org.apache.spark.rdd.RDD
 
@@ -29,7 +29,7 @@ object MathUtils {
 
     for (j <- 1 to k) {
       val (xSampT, ySamp) = sampleXY(xData, yData, b, sc)
-      val xSamp = xSampT.toCoordinateMatrix().transpose() // must be calculated every time
+      val xSamp = xSampT.toCoordinateMatrix().transpose() // must be calculated every time, it is (relatively) small
       val dim = xData.numCols().toInt
 
 
@@ -217,6 +217,39 @@ object MathUtils {
       i = i + 1
     }
     (thisSeq, labelSeq)
+  }
+
+  /**
+    * Read SVM data file using Spark, directly into RDDs
+    * @param fileLoc File to read from
+    * @param sc spark context to use.
+    * @return 2 Tuple consisting of (data, labels)
+    */
+  def sparkRead(fileLoc: String, sc: SparkContext): (IndexedRowMatrix, IndexedRowMatrix) = {
+    val a = sc.textFile(fileLoc, 1)
+    val b = a.zipWithIndex
+    val labels = b.map(f => {
+
+      var v: MLVector = mllib.linalg.Vectors.dense(f._1.split(' ').head.toDouble)
+      new IndexedRow(f._2, v)
+    })
+    val data = b.map(f => {
+
+      val items = f._1.replace("  ", " ").split(' ')
+      var v: Array[Double] = new Array[Double](items.length - 1)
+      for (para <- items.tail) {
+        if(para.length > 0) {
+          val indexAndValue = para.split(':')
+          val index = indexAndValue(0).toInt - 1 // Convert 1-based indices to 0-based.
+          val value = indexAndValue(1).toDouble
+          v(index) = value
+        }
+      }
+
+      new IndexedRow(f._2, Vectors.dense(v))
+    })
+
+    (new IndexedRowMatrix(data), new IndexedRowMatrix(labels))
   }
 
 

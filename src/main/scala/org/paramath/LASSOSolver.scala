@@ -12,24 +12,23 @@ import breeze.linalg.{DenseMatrix => BDM, norm}
 import org.paramath.util.{MathUtils => mutil}
 import org.apache.spark.SparkContext
 import org.apache.spark.mllib.linalg.distributed._
-import org.apache.spark.rdd.RDD
 
 import scala.util.Random
 
 /*
 Team Alpha Omega
-CA-SFISTA implementation with Spark
+CA Distributed LASSO Solver implementation with Spark
 */
 
-object CA_SPNM {
+object LASSOSolver {
+
 
   /**
-    * CA_SPNM Implementation.
+    * Communication-Avoiding LASSO Solver Implementation.
     * Communication avoiding linear optimization solver.
     *
-    * @param sc User's spark context
-    * @param data The data observations, n rows x d cols (n observations x d fields
-    *             )
+    * @param sc The SparkContext
+    * @param data The data observations, n rows x d cols (n observations x d fields)
     * @param labels The labeled (true) observations (as a d x 1 vector)
     * @param numPartitions Number of partitions to compute on
     * @param t Step size
@@ -40,7 +39,7 @@ object CA_SPNM {
              sc: SparkContext,
              data: IndexedRowMatrix,
              labels: IndexedRowMatrix,
-             numPartitions: Int = 4,
+             numPartitions: Int = -1,
              t: Int = 100,
              k: Int = 10,
              b: Double = 0.2,
@@ -50,10 +49,13 @@ object CA_SPNM {
              wOpt: BDM[Double] = null): CoordinateMatrix = {
 
 
-//    val entries = sc.parallelize(data, numPartitions) // create RDD of MatrixEntry of features
-//    val labelEntries = sc.parallelize(labels, numPartitions) // create RDD of MatrixEntry of labels
-    // TODO: Check if pre-partitioning data is necessary so we don't have
-    // TODO: repartition in the loop. (entries/labelEntries)
+    if(numPartitions > 0) {
+      data.rows.repartition(numPartitions)
+      labels.rows.repartition(numPartitions)
+    }else if (numPartitions != -1) {
+      throw new IllegalArgumentException("numPartitions must be greater than 0")
+    }
+
     var xDataT: IndexedRowMatrix = data
     var yData: IndexedRowMatrix = labels
     val d = xDataT.numCols()

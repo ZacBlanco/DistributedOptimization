@@ -152,6 +152,7 @@ class MathUtilsSuite extends SparkTestSuite {
 
   }
 
+
   test("Binary Search") {
     var t = mutil.uniqueRandVals(0, 20, 10)
     scala.util.Sorting.quickSort(t)
@@ -166,4 +167,9 @@ class MathUtilsSuite extends SparkTestSuite {
     }
   }
 
+
+  test("Spark read") {
+    val (data, labels) = mutil.sparkRead("YearPredictionMSD", sc)
+    assert(data.numCols() == 90)
+  }
 }
