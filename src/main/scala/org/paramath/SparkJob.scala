@@ -4,12 +4,12 @@ import breeze.linalg.DenseMatrix
 import org.apache.spark.sql.SparkSession
 import org.paramath.util.MathUtils
 
+import scala.collection.mutable
 import scala.io.Source
 
 object SparkJob {
 
   def main(args: Array[String]): Unit = {
-
     val usage =
       """
          -{option} {Description | default}
@@ -28,7 +28,7 @@ object SparkJob {
 
       """.stripMargin
 
-    var m = Map[String, String]()
+    var m = mutable.Map[String, String]()
     m += ("-m" -> "spark://ke:7077")
     m += ("-an" -> "DistributedOptimizationTest")
     m += ("-f" -> null)
@@ -43,7 +43,8 @@ object SparkJob {
     var i: Int= 0
     while (i < args.length) {
       if (m.contains(args(i))) {
-        m(args(i)) == args(i+1)
+        m -= args(i)
+        m += args(i) -> args(i+1)
       } else {
         println(usage)
         sys.exit(1)
@@ -61,16 +62,22 @@ object SparkJob {
       try{
         val f = Source.fromFile(m.get("-wopt").get)
         val ct = f.getLines().length
-        var i = 0;
+        f.close()
+        var i = 0
         var w = DenseMatrix.zeros[Double](ct, 1)
-        for (l <- f.getLines) {
-          w(i, 0) = l.toDouble
+        for (l <- Source.fromFile(m.get("-wopt").get).getLines) {
+          w(i, 0) = l.stripMargin.toDouble
           i += 1
         }
         wopt = w
+      } catch {
+        case e: Exception => {
+          println("Error while reading optimal weight file")
+          println(e)
+          println("Continuing execution without optimal weights known")
+        }
       }
     }
-
 
 
     var spark = SparkSession.builder
@@ -84,7 +91,7 @@ object SparkJob {
     var tick = System.currentTimeMillis()
     val kMax = 500
 
-    for (p <- 1 until kMax by 200) {
+//    for (p <- 1 until kMax by 200) {
       LASSOSolver(sc, data, labels,
         b=m.get("-b").get.toDouble,
         k=m.get("-k").get.toInt,
@@ -93,7 +100,7 @@ object SparkJob {
         gamma=m.get("-g").get.toDouble,
         lambda=m.get("-l").get.toDouble,
         wOpt=wopt)
-    }
+//    }
 
 
     var tock = System.currentTimeMillis()

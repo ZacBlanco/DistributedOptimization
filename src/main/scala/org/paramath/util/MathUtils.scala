@@ -46,6 +46,32 @@ object MathUtils {
     (gEntries, rEntries) // Use must still divide by m for SFISTA and SPNM Algorithms
   }
 
+  def delayedGramComputeMatrixSamples(
+                           xData: IndexedRowMatrix, // This argument should be passed as X^T (we sample rows instead of columns
+                           yData: IndexedRowMatrix,
+                           k: Int,
+                           b: Double,
+                           m: Double,
+                           sc: SparkContext,
+                           builtinGram: Boolean = false): (Array[IndexedRowMatrix], Array[RDD[MatrixEntry]]) = {
+
+    var gEntries: Array[IndexedRowMatrix] = new Array(k) // RDD for the sample matrices
+    var rEntries: Array[RDD[MatrixEntry]] = new Array(k)
+    // Use an array of RDD's instead
+
+    for (j <- 1 to k) {
+      val (xSampT, ySamp) = sampleXY(xData, yData, b, sc)
+      val xSamp = xSampT.toCoordinateMatrix().transpose() // must be calculated every time, it is (relatively) small
+      val dim = xData.numCols().toInt
+
+
+      gEntries(j - 1) = xSampT.computeGramianMatrix()
+      rEntries(j-1) = RDDMult(xSamp.entries, ySamp.toCoordinateMatrix().entries)
+
+    }
+    (gEntries, rEntries) // Use must still divide by m for SFISTA and SPNM Algorithms
+  }
+
   def printTime(tick: Long, tock: Long, id: String) {
     val diff = tock-tick
     println(s"Code section $id took $diff milliseconds to run")
@@ -220,6 +246,8 @@ object MathUtils {
   }
 
   /**
+    * TODO: Look into using persist() for caching (similar to cache but has different 'levels')
+    *
     * Read SVM data file using Spark, directly into RDDs
     * @param fileLoc File to read from
     * @param sc spark context to use.
@@ -232,7 +260,7 @@ object MathUtils {
 
       var v: MLVector = mllib.linalg.Vectors.dense(f._1.split(' ').head.toDouble)
       new IndexedRow(f._2, v)
-    })
+    }).cache()
     val data = b.map(f => {
 
       val items = f._1.replace("  ", " ").split(' ')
@@ -247,7 +275,7 @@ object MathUtils {
       }
 
       new IndexedRow(f._2, Vectors.dense(v))
-    })
+    }).cache()
 
     (new IndexedRowMatrix(data), new IndexedRowMatrix(labels))
   }
