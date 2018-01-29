@@ -44,6 +44,7 @@ object LASSOSolver {
              b: Double = 0.2,
              Q: Int = 5,
              gamma: Double = 0.01,
+             beta: Double = 0.99,
              lambda: Double = .1,
              exitThreshold: Double = 0.1,
              wOpt: BDM[Double] = null): CoordinateMatrix = {
@@ -68,6 +69,7 @@ object LASSOSolver {
     var tk: Double = 1.0
     var tkm1: Double = tk
     var zqm1: BDM[Double] = BDM.zeros[Double](d.toInt, 1)
+    var gam: Double = gamma //moving gamma
 
     // Initialize the weight parameters
     // Use this line to load in the default (or randomly initialized vector)
@@ -77,6 +79,7 @@ object LASSOSolver {
     // w should have the same number of partitions as the original matrix? - Check with Saeed
     var wm1: BDM[Double] = w0; // weights used 1 iteration ago
     var tick, tock: Long = System.currentTimeMillis()
+
 
     // Main algorithm loops
     breakable {
@@ -109,7 +112,7 @@ object LASSOSolver {
             var sarg: BDM[Double] = null
 
             for (q <- 1 to Q) {
-
+              gam = gam * beta
               tk = (1 + Math.sqrt(1 + (4 * (tkm1 * tkm1)))) / 2
               var v: BDM[Double] = null
               if ((i * k) + j - 1 > 0) {
@@ -118,9 +121,9 @@ object LASSOSolver {
                 v = zq
               }
 
-              sarg = v - (gamma * fgrad(v))
+              sarg = v - (gam * fgrad(v))
               zqm1 = zq
-              zq = mutil.Svec(sarg, gamma * lambda)
+              zq = mutil.Svec(sarg, gam * lambda)
 
               tkm1 = tk
             }
