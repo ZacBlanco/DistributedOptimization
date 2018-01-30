@@ -80,20 +80,17 @@ object LASSOSolver {
     var wm1: BDM[Double] = w0; // weights used 1 iteration ago
     var tick, tock: Long = System.currentTimeMillis()
 
-
+    var overallTick = System.currentTimeMillis()
     // Main algorithm loops
     breakable {
       for (i <- 0 to t / k) {
         tick = System.currentTimeMillis()
-        val (gEntries, rEntries) = mutil.randomMatrixSamples(xDataT, yData, k, b, m, sc)
+        val (gEntries, rEntries) = mutil.delayedGramComputeMatrixSamples(xDataT, yData, d.toInt, k, b, m, sc)
 
-        val gMat: Array[BDM[Double]] = new Array[BDM[Double]](gEntries.length)
-        val rMat: Array[BDM[Double]] = new Array[BDM[Double]](gEntries.length)
 
-        for (i <- 0 until gEntries.length) {
-          gMat(i) = mutil.RDDToBreeze(gEntries(i), d.toInt, d.toInt)
-          rMat(i) = mutil.RDDToBreeze(rEntries(i), d.toInt, 1)
-        }
+        val g = gEntries.collectAsMap()
+        val r = rEntries.collectAsMap()
+
         tock = System.currentTimeMillis()
         mutil.printTime(tick, tock, "Loop 1")
 
@@ -102,8 +99,8 @@ object LASSOSolver {
         breakable {
           for (j <- 1 to k) {
 
-            val hb = gMat(j - 1) / m // To do normal multiplications
-            val rb = rMat(j - 1) / m
+            val hb: BDM[Double] = g(j - 1) / m // To do normal multiplications
+            val rb: BDM[Double] = r(j - 1).toDenseMatrix.t / m
 
             val fgrad = (X: BDM[Double]) => (hb * X) - rb
 
@@ -142,12 +139,12 @@ object LASSOSolver {
             }
 
 
-            val o: Double = breeze.linalg.norm((mutil.coordToBreeze(xDataT.toCoordinateMatrix()) * w).toDenseVector -
-              mutil.coordToBreeze(yData.toCoordinateMatrix()).toDenseVector)
-            val o1 = 1.0 / (2 * n) * scala.math.pow(o, 2)
-            val o2 = lambda * breeze.linalg.sum(breeze.numerics.abs(w))
-            val objFunc = o1 + o2
-            println(s"norm:$objFunc")
+//            val o: Double = breeze.linalg.norm((mutil.coordToBreeze(xDataT.toCoordinateMatrix()) * w).toDenseVector -
+//              mutil.coordToBreeze(yData.toCoordinateMatrix()).toDenseVector)
+//            val o1 = 1.0 / (2 * n) * scala.math.pow(o, 2)
+//            val o2 = lambda * breeze.linalg.sum(breeze.numerics.abs(w))
+//            val objFunc = o1 + o2
+//            println(s"norm:$objFunc")
           }
         }
 
@@ -157,9 +154,11 @@ object LASSOSolver {
 
         tock = System.currentTimeMillis()
         mutil.printTime(tick, tock, "Loop 2")
-        println(w)
+//        println(w)
       }
     }
+    var overallTock = System.currentTimeMillis()
+    mutil.printTime(overallTick, overallTock, "Overall Execution Times")
 
     mutil.breezeMatrixToCoord(w, sc)
   }

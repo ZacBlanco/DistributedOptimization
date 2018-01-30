@@ -1,9 +1,11 @@
 package org.paramath.util
 
 import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV}
+import com.github.fommil.netlib.BLAS.{getInstance => NativeBLAS}
 import org.apache.spark.{SparkContext, mllib}
 import org.apache.spark.ml.linalg
-import org.apache.spark.mllib.linalg.{DenseMatrix, DenseVector, Matrices, Matrix, Vectors, Vector => MLVector}
+import org.apache.spark.mllib.linalg.BLAS
+import org.apache.spark.mllib.linalg.{DenseMatrix, DenseVector, Matrices, Matrix, SparseVector, Vectors, Vector => MLVector}
 import org.apache.spark.mllib.linalg.distributed.{CoordinateMatrix, IndexedRow, IndexedRowMatrix, MatrixEntry}
 import org.apache.spark.rdd.RDD
 
@@ -14,6 +16,17 @@ import scala.util.Random
 object MathUtils {
 
 
+  /**
+    *
+    * @param xData
+    * @param yData
+    * @param k number of sampled matrices
+    * @param b percent of rows to sample
+    * @param m value to divide all numbers by
+    * @param sc sparkcontext
+    * @param builtinGram
+    * @return
+    */
   def randomMatrixSamples(
                            xData: IndexedRowMatrix, // This argument should be passed as X^T (we sample rows instead of columns
                            yData: IndexedRowMatrix,
@@ -26,6 +39,7 @@ object MathUtils {
     var gEntries: Array[RDD[MatrixEntry]] = new Array(k) // RDD for the sample matrices
     var rEntries: Array[RDD[MatrixEntry]] = new Array(k)
     // Use an array of RDD's instead
+
 
     for (j <- 1 to k) {
       val (xSampT, ySamp) = sampleXY(xData, yData, b, sc)
@@ -46,30 +60,169 @@ object MathUtils {
     (gEntries, rEntries) // Use must still divide by m for SFISTA and SPNM Algorithms
   }
 
+  /**
+    *
+    * @param xData
+    * @param yData
+    * @param d
+    * @param k
+    * @param b
+    * @param m
+    * @param sc
+    * @param builtinGram
+    * @return
+    */
   def delayedGramComputeMatrixSamples(
                            xData: IndexedRowMatrix, // This argument should be passed as X^T (we sample rows instead of columns
                            yData: IndexedRowMatrix,
+                           d: Int,
                            k: Int,
                            b: Double,
                            m: Double,
                            sc: SparkContext,
-                           builtinGram: Boolean = false): (Array[IndexedRowMatrix], Array[RDD[MatrixEntry]]) = {
+                           builtinGram: Boolean = false): (RDD[(Int, BDM[Double])], RDD[(Int, BDV[Double])]) = {
 
-    var gEntries: Array[IndexedRowMatrix] = new Array(k) // RDD for the sample matrices
-    var rEntries: Array[RDD[MatrixEntry]] = new Array(k)
-    // Use an array of RDD's instead
+    var gram = sc.emptyRDD[(Int, BDV[Double])]
+    var xys = sc.emptyRDD[(Int, BDV[Double])]
+    val nt = if (d % 2 == 0) ((d / 2) * (d + 1)) else (d * ((d + 1) / 2))
 
     for (j <- 1 to k) {
       val (xSampT, ySamp) = sampleXY(xData, yData, b, sc)
-      val xSamp = xSampT.toCoordinateMatrix().transpose() // must be calculated every time, it is (relatively) small
       val dim = xData.numCols().toInt
+      // Compute the gramian for X^T
+      gram = gram.union(xSampT.rows.map( row => {
+        var U: BDV[Double] = BDV.zeros(nt)
+        spr(1.0, row.vector, U.data)
+        (j-1, U)
+      }))
 
 
-      gEntries(j - 1) = xSampT.computeGramianMatrix()
-      rEntries(j-1) = RDDMult(xSamp.entries, ySamp.toCoordinateMatrix().entries)
+      //Compute XY
+
+      // First expand the rows into (index, vector) KV pairs
+      val yExpanded = ySamp.rows.map(f => (f.index, f.vector(0))) // (index, y value)
+
+      val joinedRows: RDD[(Long, (MLVector, Double))] = xSampT.rows.map(f=> (f.index, f.vector)).join(yExpanded)
+
+      xys = xys.union(joinedRows.map( f => {
+        var a = Vectors.zeros(d)
+        axpy(f._2._2, f._2._1, a)
+        (j-1, new BDV[Double](a.toArray))
+      }))
 
     }
-    (gEntries, rEntries) // Use must still divide by m for SFISTA and SPNM Algorithms
+
+    val finalGram: RDD[(Int, BDM[Double])] = gram.reduceByKey(_ + _).map(f => {
+      (f._1, triuToFull(d, f._2.toArray))
+    })
+    xys = xys.reduceByKey( (f1, f2) => {
+      f1 + f2
+    })
+
+    (finalGram, xys) // Use must still divide by m for SFISTA and SPNM Algorithms
+  }
+
+  def triuToFull(n: Int, U: Array[Double]): BDM[Double] = {
+    val G = new BDM[Double](n, n)
+
+    var row = 0
+    var col = 0
+    var idx = 0
+    var value = 0.0
+    while (col < n) {
+      row = 0
+      while (row < col) {
+        value = U(idx)
+        G(row, col) = value
+        G(col, row) = value
+        idx += 1
+        row += 1
+      }
+      G(col, col) = U(idx)
+      idx += 1
+      col +=1
+    }
+    G
+  }
+
+  /**
+    * y += a * x
+    */
+  def axpy(a: Double, x: MLVector, y: MLVector): Unit = {
+    require(x.size == y.size)
+    y match {
+      case dy: DenseVector =>
+        x match {
+          case sx: SparseVector =>
+            axpy(a, sx, dy)
+          case dx: DenseVector =>
+            axpy(a, dx, dy)
+          case _ =>
+            throw new UnsupportedOperationException(
+              s"axpy doesn't support x type ${x.getClass}.")
+        }
+      case _ =>
+        throw new IllegalArgumentException(
+          s"axpy only supports adding to a dense vector but got type ${y.getClass}.")
+    }
+  }
+
+  /**
+    * y += a * x
+    */
+  private def axpy(a: Double, x: SparseVector, y: DenseVector): Unit = {
+    val xValues = x.values
+    val xIndices = x.indices
+    val yValues = y.values
+    val nnz = xIndices.length
+
+    if (a == 1.0) {
+      var k = 0
+      while (k < nnz) {
+        yValues(xIndices(k)) += xValues(k)
+        k += 1
+      }
+    } else {
+      var k = 0
+      while (k < nnz) {
+        yValues(xIndices(k)) += a * xValues(k)
+        k += 1
+      }
+    }
+  }
+
+  /**
+    * Adds alpha * v * v.t to a matrix in-place. This is the same as BLAS's ?SPR.
+    *
+    * @param U the upper triangular part of the matrix packed in an array (column major)
+    */
+  def spr(alpha: Double, v: MLVector, U: Array[Double]): Unit = {
+    val n = v.size
+    v match {
+      case DenseVector(values) =>
+        NativeBLAS.dspr("U", n, alpha, values, 1, U)
+      case SparseVector(size, indices, values) =>
+        val nnz = indices.length
+        var colStartIdx = 0
+        var prevCol = 0
+        var col = 0
+        var j = 0
+        var i = 0
+        var av = 0.0
+        while (j < nnz) {
+          col = indices(j)
+          // Skip empty columns.
+          colStartIdx += (col - prevCol) * (col + prevCol + 1) / 2
+          av = alpha * values(j)
+          i = 0
+          while (i <= j) {
+            U(colStartIdx + indices(i)) += av * values(i)
+            i += 1
+          }
+          j += 1
+          prevCol = col
+        }
+    }
   }
 
   def printTime(tick: Long, tock: Long, id: String) {
@@ -113,9 +266,10 @@ object MathUtils {
     *
     * @param A matrix to take column samples of
     * @param rows An array containing the indexes to keep in the matrix
+    * @param k Amount to shift each row index (optional, default = 0)
     * @return RDD[MatrixEntry] with columns shifted to create a normal matrix
     */
-  def sampleRows(A: IndexedRowMatrix, rows: Array[Long], sc: SparkContext): IndexedRowMatrix = {
+  def sampleRows(A: IndexedRowMatrix, rows: Array[Long], sc: SparkContext, k: Long = 0): IndexedRowMatrix = {
 
     var rowSet: Set[Long] = rows.toSet
     scala.util.Sorting.quickSort(rows) // Sort the picked column indexes
@@ -129,19 +283,20 @@ object MathUtils {
     val bcastRows = sc.broadcast(rows)
     val filteredRows: RDD[IndexedRow] = A.rows
       .filter({ case IndexedRow(i, v) => bcastSet.value.contains(i.toInt) })
-      .map({case IndexedRow(i, v) => IndexedRow(binSearch(bcastRows.value, i), v)})
+      .map({case IndexedRow(i, v) => IndexedRow(binSearch(bcastRows.value, i) + k, v)})
 
     new IndexedRowMatrix(filteredRows) // Convert back to Coordinate matrix.
   }
 
   /**
     * Pick a random number columns from X, and a random number of rows from Y
-    * @param X The X data to sample rows from (For CA SFISTA/SPNM this should be X^T
+    * @param X The X data to sample rows from (For CA SFISTA/SPNM this should be X^T)
     * @param y The y Vector to sample rows from
     * @param percent Percent of rows to sample from each.
+    * @param k Amount to shift each row index (optional, default = 0)
     * @return
     */
-  def sampleXY(X: IndexedRowMatrix, y: IndexedRowMatrix, percent: Double, sc: SparkContext): (IndexedRowMatrix, IndexedRowMatrix) = {
+  def sampleXY(X: IndexedRowMatrix, y: IndexedRowMatrix, percent: Double, sc: SparkContext, k: Long = 0): (IndexedRowMatrix, IndexedRowMatrix) = {
     val nrows: Long = X.numRows() // Should be same as y.numRows()
     val pickNum: Int = Math.ceil(nrows*percent).toInt
     if (pickNum < 1) {
@@ -151,7 +306,7 @@ object MathUtils {
     for (i <- 0 until pickNum) {
       indices(i) = Math.abs(Random.nextLong()) % nrows // [0, nrows)
     }
-    (sampleRows(X, indices, sc), sampleRows(y, indices, sc)) // Forces us to take the same samples
+    (sampleRows(X, indices, sc, k), sampleRows(y, indices, sc, k)) // Forces us to take the same samples
   }
 
   /**
@@ -264,17 +419,19 @@ object MathUtils {
     val data = b.map(f => {
 
       val items = f._1.replace("  ", " ").split(' ')
+      var ind: Array[Int] = new Array[Int](items.length - 1)
       var v: Array[Double] = new Array[Double](items.length - 1)
+      var i: Int = 0;
       for (para <- items.tail) {
-        if(para.length > 0) {
-          val indexAndValue = para.split(':')
-          val index = indexAndValue(0).toInt - 1 // Convert 1-based indices to 0-based.
-          val value = indexAndValue(1).toDouble
-          v(index) = value
-        }
+        val indexAndValue = para.split(':')
+        val index = indexAndValue(0).toInt - 1 // Convert 1-based indices to 0-based.
+        val value = indexAndValue(1).toDouble
+        v(index) = value
+        ind(i) = index
+        i += 1
       }
 
-      new IndexedRow(f._2, Vectors.dense(v))
+      new IndexedRow(f._2, Vectors.sparse(ind.length, ind, v))
     }).cache()
 
     (new IndexedRowMatrix(data), new IndexedRowMatrix(labels))
