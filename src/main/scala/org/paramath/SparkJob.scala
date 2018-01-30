@@ -24,6 +24,7 @@ object SparkJob {
          -Q { Number of SFISTA/SPNM Iterations | 10 }
          -g { gamma parameter | .01 }
          -l { lambda parameter | .1 }
+         -r { number of times to repeat optimization | 1 }
          -wopt { optimal weight vector filename, line by line | null }
 
       """.stripMargin
@@ -38,6 +39,7 @@ object SparkJob {
     m += ("-Q" -> "10")
     m += ("-g" -> ".01")
     m += ("-l" -> ".1")
+    m += ("-r" -> "1")
     m += ("-wopt" -> null)
 
     var i: Int= 0
@@ -89,9 +91,9 @@ object SparkJob {
 
     var (data, labels) = MathUtils.sparkRead(m.get("-f").get, sc)
     var tick = System.currentTimeMillis()
-    val kMax = 500
+    val repeats = m.get("-r").get.toInt
 
-//    for (p <- 1 until kMax by 200) {
+    for (p <- 0 until repeats) {
       LASSOSolver(sc, data, labels,
         b=m.get("-b").get.toDouble,
         k=m.get("-k").get.toInt,
@@ -100,10 +102,10 @@ object SparkJob {
         gamma=m.get("-g").get.toDouble,
         lambda=m.get("-l").get.toDouble,
         wOpt=wopt)
-//    }
+    }
 
 
     var tock = System.currentTimeMillis()
-    MathUtils.printTime(tick, tock, "Overall")
+    MathUtils.printTime(tick, tock, "SparkJob Overall")
   }
 }

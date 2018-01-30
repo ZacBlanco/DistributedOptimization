@@ -158,7 +158,7 @@ object LASSOSolver {
       }
     }
     var overallTock = System.currentTimeMillis()
-    mutil.printTime(overallTick, overallTock, "Overall Execution Times")
+    mutil.printTime(overallTick, overallTock, "LASSO Overall Execution Time")
 
     mutil.breezeMatrixToCoord(w, sc)
   }
