@@ -7,6 +7,8 @@ import org.paramath.util.MathUtils
 import scala.collection.mutable
 import scala.io.Source
 
+import org.apache.log4j.{Level, Logger}
+
 object SparkJob {
 
   def main(args: Array[String]): Unit = {
@@ -17,7 +19,8 @@ object SparkJob {
 
          -m {Spark master URL | spark://ke:7077 }
          -an {App Name | DistributedOptimizationTest }
-         -f { input file location | null }
+         -f { input file location (required) | null }
+         -nf { number of features for the dataset (required) | null }
          -b { percent of columns to pick | .2 }
          -k { number of inner iterations | 10 }
          -t { outer iterations * k | 100 }
@@ -33,6 +36,7 @@ object SparkJob {
     m += ("-m" -> "spark://ke:7077")
     m += ("-an" -> "DistributedOptimizationTest")
     m += ("-f" -> null)
+    m += ("-nf" -> null)
     m += ("-b" -> ".2")
     m += ("-k" -> "10")
     m += ("-t" -> "100")
@@ -54,11 +58,16 @@ object SparkJob {
       i += 2
     }
 
-    if (m.get("-f").get == null) {
-      println("File location is required")
-      println(usage)
-      sys.exit(1)
+    val reqd = Array("-f", "-nf") // required options
+    for(opt <- reqd) {
+      if (m.get(opt).get == null) {
+        println("File location is required")
+        println(usage)
+        sys.exit(1)
+      }
     }
+
+
     var wopt: DenseMatrix[Double] = null
     if (m.get("-wopt").get != null) {
       try{
@@ -88,6 +97,9 @@ object SparkJob {
       .getOrCreate()
     var sc = spark.sparkContext
 
+    Logger.getLogger("org").setLevel(Level.OFF)
+    Logger.getLogger("akka").setLevel(Level.OFF)
+
 
     var (data, labels) = MathUtils.sparkRead(m.get("-f").get, sc)
     var tick = System.currentTimeMillis()
@@ -95,6 +107,7 @@ object SparkJob {
 
     for (p <- 0 until repeats) {
       LASSOSolver(sc, data, labels,
+        numFeatures=m.get("-nf").get.toInt,
         b=m.get("-b").get.toDouble,
         k=m.get("-k").get.toInt,
         t=m.get("-t").get.toInt,

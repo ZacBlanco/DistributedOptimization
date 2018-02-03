@@ -24,11 +24,11 @@ object LASSOSolver {
 
   /**
     * Communication-Avoiding LASSO Solver Implementation.
-    * Communication avoiding linear optimization solver.
     *
     * @param sc The SparkContext
     * @param data The data observations, n rows x d cols (n observations x d fields)
     * @param labels The labeled (true) observations (as a d x 1 vector)
+    * @param numFeatures The number of features of the dataset (NOT number of observations)
     * @param numPartitions Number of partitions to compute on
     * @param t Step size
     * @param k number of inner iterations
@@ -38,6 +38,7 @@ object LASSOSolver {
              sc: SparkContext,
              data: IndexedRowMatrix,
              labels: IndexedRowMatrix,
+             numFeatures: Int = -1,
              numPartitions: Int = -1,
              t: Int = 100,
              k: Int = 10,
@@ -59,7 +60,7 @@ object LASSOSolver {
 
     var xDataT: IndexedRowMatrix = data
     var yData: IndexedRowMatrix = labels
-    val d = xDataT.numCols()
+    val d = numFeatures
     val n = xDataT.numRows()
     val m: Double = Math.floor(b*n)
 
@@ -85,7 +86,7 @@ object LASSOSolver {
     breakable {
       for (i <- 0 to t / k) {
         tick = System.currentTimeMillis()
-        val (gEntries, rEntries) = mutil.delayedGramComputeMatrixSamples(xDataT, yData, d.toInt, k, b, m, sc)
+        val (gEntries, rEntries) = mutil.delayedGramComputeMatrixSamples(xDataT, yData, d, k, b, m, sc)
 
 
         val g = gEntries.collectAsMap()
@@ -131,6 +132,7 @@ object LASSOSolver {
                 throw new IllegalArgumentException(s"Woptimal which was provided did not have proper dimensions of ($w.rows x $w.cols")
               } else {
                 eps = norm(w.toDenseVector - wOpt.toDenseVector) / norm(wOpt.toDenseVector)
+//                println(s"norm:$eps")
               }
             }
 

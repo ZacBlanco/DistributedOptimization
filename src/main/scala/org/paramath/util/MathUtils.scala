@@ -122,6 +122,7 @@ object MathUtils {
     (finalGram, xys) // Use must still divide by m for SFISTA and SPNM Algorithms
   }
 
+
   def triuToFull(n: Int, U: Array[Double]): BDM[Double] = {
     val G = new BDM[Double](n, n)
 
@@ -149,13 +150,13 @@ object MathUtils {
     * y += a * x
     */
   def axpy(a: Double, x: MLVector, y: MLVector): Unit = {
-    require(x.size == y.size)
     y match {
       case dy: DenseVector =>
         x match {
           case sx: SparseVector =>
             axpy(a, sx, dy)
           case dx: DenseVector =>
+            throw new IllegalArgumentException("Expected Sparse and Dense Vector")
             axpy(a, dx, dy)
           case _ =>
             throw new UnsupportedOperationException(
@@ -408,7 +409,7 @@ object MathUtils {
     * @param sc spark context to use.
     * @return 2 Tuple consisting of (data, labels)
     */
-  def sparkRead(fileLoc: String, sc: SparkContext): (IndexedRowMatrix, IndexedRowMatrix) = {
+  def sparkRead(fileLoc: String, sc: SparkContext, numFeatures: Int = -1): (IndexedRowMatrix, IndexedRowMatrix) = {
     val a = sc.textFile(fileLoc, 1)
     val b = a.zipWithIndex
     val labels = b.map(f => {
@@ -418,21 +419,22 @@ object MathUtils {
     }).cache()
     val data = b.map(f => {
 
-      val items = f._1.replace("  ", " ").split(' ')
-      var ind: Array[Int] = new Array[Int](items.length - 1)
-      var v: Array[Double] = new Array[Double](items.length - 1)
-      var i: Int = 0;
-      for (para <- items.tail) {
-        val indexAndValue = para.split(':')
-        val index = indexAndValue(0).toInt - 1 // Convert 1-based indices to 0-based.
-        val value = indexAndValue(1).toDouble
-        v(index) = value
-        ind(i) = index
-        i += 1
-      }
+        val items = f._1.replace("  ", " ").split(' ')
+        var ind: Array[Int] = new Array[Int](items.length - 1)
+        var v: Array[Double] = new Array[Double](items.length - 1)
+        var i: Int = 0
+        for (para <- items.tail) {
+          val indexAndValue = para.split(':')
+          val index = indexAndValue(0).toInt - 1 // Convert 1-based indices to 0-based.
+          val value = indexAndValue(1).toDouble
+          v(i) = value
+          ind(i) = index
+          i += 1
+        }
 
-      new IndexedRow(f._2, Vectors.sparse(ind.length, ind, v))
-    }).cache()
+        new IndexedRow(f._2, Vectors.sparse(ind.length, ind, v))
+      }).cache()
+
 
     (new IndexedRowMatrix(data), new IndexedRowMatrix(labels))
   }
